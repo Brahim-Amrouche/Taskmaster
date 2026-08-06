@@ -1,0 +1,10 @@
+/target/
+
+# Backup files
+*.rs.bk
+*.swp
+.vscode/
+.idea/
+
+#Environments
+.env
