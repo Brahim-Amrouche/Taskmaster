@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "config_parser"
+name = "config-parser"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -112,7 +112,7 @@ dependencies = [
 name = "taskmaster"
 version = "0.1.0"
 dependencies = [
- "config_parser",
+ "config-parser",
 ]
 
 [[package]]

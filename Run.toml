@@ -1,0 +1,15 @@
+[program.Test]
+command = "/usr/bin/ls"
+chdir = "./path/dir"
+chmod = ""
+process_count = 3
+auto_start = true
+restart_protocol = ["always", " never", "unexpected"]
+exit_codes = [1, 2]
+runtime = 5
+restart_count = 3
+exit_signal = "TERM"
+kill_time = 10
+stdin = "./path/stdin"
+stdout = "./path/stdout"
+env = []

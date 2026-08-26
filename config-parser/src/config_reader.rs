@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::error::Error;
 use std::fmt;
+use crate::config::Config;
 
 pub struct ConfigReader {
 	file_path: PathBuf,
@@ -48,8 +49,9 @@ impl ConfigReader {
 		}
 	}
 
-	pub fn parse<T: DeserializeOwned>(&mut self) -> ConfigReaderResult<T> {
+	pub fn parse<T>(&mut self) -> ConfigReaderResult<T> where T:DeserializeOwned {
 		let content = self.file_content.as_ref().ok_or(ConfigReaderError::NotLoaded)?;
 		toml::from_str::<T>(content).map_err(|err| ConfigReaderError::ParseError(err.to_string()))
 	}
+	
 }

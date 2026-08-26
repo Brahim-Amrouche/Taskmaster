@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
 	"taskmaster",
-	"config_parser",
+	"config-parser",
 	"runtime",
 	"shell"
 ]
