@@ -61,6 +61,101 @@ The workspace currently builds successfully, but it emits two warnings:
 These are minor and should be cleaned up when the related files are next
 edited. They are not the next functional milestone.
 
+## Recently implemented validation work
+
+The configuration parser now includes a `validators` module:
+
+```text
+config-parser/src/validators/
+├── mod.rs
+└── output_targets.rs
+```
+
+The module is exposed from `config-parser/src/lib.rs` and provides validation
+types for configuration output targets.
+
+### Generic output targets
+
+`OutputTarget<T>` is a generic structure that stores a `PathBuf`. The generic
+parameter identifies the role of the target at compile time.
+
+The current marker types are:
+
+- `StdinOutputTarget`
+- `StdoutOutputTarget`
+
+Convenient aliases are provided:
+
+```rust
+type Stdin = OutputTarget<StdinOutputTarget>;
+type Stdout = OutputTarget<StdoutOutputTarget>;
+```
+
+The `OutputTargetsType` trait defines role-specific behavior through `name()`
+and `validate()` methods. Each marker type implements that trait separately.
+
+### Serde and `TryFrom`
+
+`OutputTarget<T>` derives `Deserialize` with:
+
+```rust
+#[serde(try_from = "String")]
+```
+
+This means a TOML string is first deserialized as a `String`, then converted
+into the appropriate `OutputTarget<T>` through its `TryFrom<String>`
+implementation. The conversion calls `T::validate()` immediately, so invalid
+values fail during configuration deserialization.
+
+The conversion is available only for marker types implementing
+`OutputTargetsType`:
+
+```rust
+impl<T> TryFrom<String> for OutputTarget<T>
+where
+    T: OutputTargetsType,
+```
+
+This prevents unsupported marker types from using the conversion.
+
+### Current stdin behavior
+
+The stdin validator currently requires the configured path to be an existing
+regular file. Therefore:
+
+```toml
+stdin = "x"
+```
+
+fails unless `x` exists as a file relative to the process working directory.
+The path value is interpreted by the operating system; `PathBuf::from("x")`
+does not create the file.
+
+The current stdout validator accepts an existing directory and appends
+`stdout.log` to it. Its behavior still needs to be completed for nonexistent
+output paths and final output-file creation rules.
+
+### Error propagation
+
+Validation errors are propagated through Serde and the TOML parser into
+`ConfigReaderError::ParseError`. The current error chain is:
+
+```text
+validator error
+  → TryFrom<String>
+  → TOML deserialization error
+  → ConfigReaderError::ParseError
+```
+
+When Rust prints a returned `main` error automatically, it may display the
+enum using debug formatting, including escaped characters such as `\\n` and
+`\\"`. Printing the error explicitly with `{}` uses the custom `Display`
+implementation instead.
+
+This validation work is now part of the project’s implementation record. This
+document should continue to be updated whenever a project milestone is
+implemented.
+
 ## Configuration fields required by the assignment
 
 Each supervised program must eventually describe:
@@ -126,4 +221,3 @@ configuration changes.
 The client/server architecture, privilege de-escalation, advanced reporting,
 and console attachment are bonus features and should not be implemented until
 all mandatory features work reliably.
-
