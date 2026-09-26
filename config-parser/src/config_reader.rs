@@ -3,7 +3,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::error::Error;
 use std::fmt;
-use crate::config::Config;
 
 pub struct ConfigReader {
 	file_path: PathBuf,
