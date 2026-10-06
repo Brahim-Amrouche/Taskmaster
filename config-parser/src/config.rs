@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use serde::Deserialize;
-use crate::validators::output_targets::{Stdin,Stdout};
+use crate::validators::{
+	output_targets::{Stdin,Stdout},
+	command::{Command}
+};
 use std::fmt;
 
 #[derive(Debug)]
@@ -25,7 +28,7 @@ impl fmt::Display for ConfigValidationError {
 
 #[derive(Debug, Deserialize)]
 pub struct ProgramConfig {
-	pub command: String,
+	pub command: Command,
 	pub chdir: String,
 	pub chmod: String,
 	pub process_count: u64,
@@ -41,10 +44,10 @@ pub struct ProgramConfig {
 	pub env: Vec<String>
 }
 
-type ConfigValidationResult<T> = Result<T, ConfigValidationError>;
+// type ConfigValidationResult<T> = Result<T, ConfigValidationError>;
 
-impl ProgramConfig {
-	fn validate(self) -> ConfigValidationResult<ProgramConfig> {
-		Ok(self)
-	}
-}
+// impl ProgramConfig {
+// 	fn validate(self) -> ConfigValidationResult<ProgramConfig> {
+// 		Ok(self)
+// 	}
+// }

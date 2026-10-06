@@ -156,6 +156,31 @@ This validation work is now part of the project’s implementation record. This
 document should continue to be updated whenever a project milestone is
 implemented.
 
+## Test coverage
+
+Focused unit tests now cover the configuration functionality implemented so
+far. They use the Rust standard library only and create isolated temporary
+files under the system temporary directory.
+
+The tests currently verify:
+
+- command rejection for empty input, nonexistent paths, directories, and files
+  without an execute bit;
+- splitting a valid command into its executable path and arguments;
+- `Command::try_from` storing the parsed command;
+- stdin acceptance of an existing regular file and rejection of missing files
+  and directories;
+- stdout directory expansion to `stdout.log` and its current acceptance of a
+  nonexistent output path;
+- configuration-reader behavior before loading, for missing files, valid TOML,
+  and invalid TOML.
+
+Run the configuration-parser test suite with:
+
+```text
+cargo test -p config-parser
+```
+
 ## Configuration fields required by the assignment
 
 Each supervised program must eventually describe:

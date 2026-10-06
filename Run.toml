@@ -10,6 +10,6 @@ runtime = 5
 restart_count = 3
 exit_signal = "TERM"
 kill_time = 10
-stdin = "x"
+stdin = "stdin"
 stdout = "stdout"
 env = []

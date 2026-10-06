@@ -15,7 +15,7 @@ fn run() -> Result<(), Box<dyn std::error::Error> > {
 	config_reader.read()?;
 	let configs = config_reader.parse::<Config>()?;
 	for (_, conf) in configs.program.into_iter(){
-		println!("The value for program is {}",conf.command);
+		println!("The value for program is {:?}",conf.command);
 	}
 	println!("Hello, world!");
 	Ok(())
