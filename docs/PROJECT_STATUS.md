@@ -172,6 +172,16 @@ The tests currently verify:
   and directories;
 - stdout directory expansion to `stdout.log` and its current acceptance of a
   nonexistent output path;
+- working-directory acceptance for existing directories and rejection of empty,
+  whitespace-only, missing, and regular-file paths;
+- process-count acceptance of positive values and rejection of zero, including
+  TOML deserialization coverage;
+- umask acceptance of three-digit octal masks and rejection of malformed masks,
+  including TOML deserialization coverage;
+- restart-policy acceptance of `always`, `never`, and `unexpected`, and
+  rejection of unknown policies;
+- exit-code acceptance for unique values, rejection of empty and duplicate
+  lists, and rejection of TOML values outside the `u8` range;
 - configuration-reader behavior before loading, for missing files, valid TOML,
   and invalid TOML.
 
@@ -180,6 +190,31 @@ Run the configuration-parser test suite with:
 ```text
 cargo test -p config-parser
 ```
+
+## Current implementation milestone
+
+The working-directory (`chdir`) validator is implemented and covered by five
+tests. It deserializes the configured value into a `PathBuf` and rejects empty,
+missing, non-directory, and uninspectable paths.
+
+The `ProcessCount` and `Umask` validators are implemented and covered by
+tests. `ProcessCount` rejects zero; `Umask` accepts exactly three octal digits
+and stores the parsed value as a `u16`.
+
+`RestartPolicy` is implemented as a Serde-deserialized enum accepting only
+`always`, `never`, or `unexpected`. The runtime will later match directly on
+this enum when deciding whether to restart an exited process.
+
+`ExitCodes` is implemented and covered by tests. It accepts a non-empty list
+of unique `u8` values and rejects duplicates. The active milestone is stop
+signal: replace the raw `String` with a validated enum of the Unix signals the
+project supports. Then implement timing values and environment variables.
+
+Integration follow-up: rename the `chmod` field to `umask`, and change the
+sample `restart_protocol` value from a list to one string. These names and
+formats currently do not match the validated types in `ProgramConfig`. Also
+replace `ProgramConfig.exit_codes: Vec<i32>` with `ExitCodes`; the validator
+module is tested but is not yet connected to the full configuration model.
 
 ## Configuration fields required by the assignment
 

@@ -1,11 +1,11 @@
 [program.Test]
 command = "/usr/bin/ls"
-chdir = "./path/dir"
-chmod = ""
+chdir = "./config-parser"
+chmod = "111"
 process_count = 3
 auto_start = true
-restart_protocol = ["always", " never", "unexpected"]
-exit_codes = [1, 2]
+restart_protocol = "never"
+exit_codes = [100, 2]
 runtime = 5
 restart_count = 3
 exit_signal = "TERM"
