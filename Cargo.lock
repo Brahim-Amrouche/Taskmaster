@@ -53,6 +53,9 @@ dependencies = [
 [[package]]
 name = "runtime"
 version = "0.1.0"
+dependencies = [
+ "config-parser",
+]
 
 [[package]]
 name = "serde"
@@ -113,6 +116,7 @@ name = "taskmaster"
 version = "0.1.0"
 dependencies = [
  "config-parser",
+ "runtime",
 ]
 
 [[package]]

@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 config-parser = { path = "../config-parser" }
+runtime = { path = "../runtime" }

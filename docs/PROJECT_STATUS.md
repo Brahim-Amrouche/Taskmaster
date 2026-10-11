@@ -182,6 +182,8 @@ The tests currently verify:
   rejection of unknown policies;
 - exit-code acceptance for unique values, rejection of empty and duplicate
   lists, and rejection of TOML values outside the `u8` range;
+- stop-signal acceptance for `TERM`, `KILL`, `INT`, `HUP`, and `QUIT`, and
+  rejection of unsupported or incorrectly cased signal names;
 - configuration-reader behavior before loading, for missing files, valid TOML,
   and invalid TOML.
 
@@ -193,28 +195,37 @@ cargo test -p config-parser
 
 ## Current implementation milestone
 
-The working-directory (`chdir`) validator is implemented and covered by five
-tests. It deserializes the configured value into a `PathBuf` and rejects empty,
-missing, non-directory, and uninspectable paths.
+### Configuration validation baseline complete
 
-The `ProcessCount` and `Umask` validators are implemented and covered by
-tests. `ProcessCount` rejects zero; `Umask` accepts exactly three octal digits
-and stores the parsed value as a `u16`.
+The sample configuration now deserializes successfully through `ConfigReader`
+and `ProgramConfig`. The configuration-parser crate has 39 passing tests and
+the workspace passes `cargo check`.
 
-`RestartPolicy` is implemented as a Serde-deserialized enum accepting only
-`always`, `never`, or `unexpected`. The runtime will later match directly on
-this enum when deciding whether to restart an exited process.
+Validated configuration types now cover command/executable paths, working
+directories, stdin/stdout targets, process count, restart policy, expected exit
+codes, umask, exit signal, and the TOML map shape of environment variables.
 
-`ExitCodes` is implemented and covered by tests. It accepts a non-empty list
-of unique `u8` values and rejects duplicates. The active milestone is stop
-signal: replace the raw `String` with a validated enum of the Unix signals the
-project supports. Then implement timing values and environment variables.
+### Remaining configuration follow-ups
 
-Integration follow-up: rename the `chmod` field to `umask`, and change the
-sample `restart_protocol` value from a list to one string. These names and
-formats currently do not match the validated types in `ProgramConfig`. Also
-replace `ProgramConfig.exit_codes: Vec<i32>` with `ExitCodes`; the validator
-module is tested but is not yet connected to the full configuration model.
+- Rename the misleading `chmod` key and field to `umask`.
+- Add an independently configured `stderr` target, required by the assignment.
+- Validate environment-variable names before process launch.
+- Decide and document units and zero-value behavior for startup time, restart
+  count, and stop timeout.
+- Add full-`Config` integration tests, including invalid nested values.
+- Document that command arguments are currently split on whitespace and do not
+  support quoted arguments.
+
+### Active milestone: single-process runtime lifecycle
+
+The `runtime` crate is currently unimplemented. Begin with one `ProgramConfig`
+and one child process: construct `std::process::Command`, apply the executable
+arguments, working directory, environment, stdin/stdout settings, spawn it,
+record its PID, wait for its exit, and return a structured exit result.
+
+Do not add restart loops, multiple process instances, signals, reloads, or the
+interactive shell in this first runtime milestone. Each requires the reliable
+single-process lifecycle as its foundation.
 
 ## Configuration fields required by the assignment
 
@@ -242,13 +253,14 @@ The current model covers many of these fields, but still needs `stderr`,
 
 ### 1. Configuration contract
 
-Complete the configuration types, defaults, and validation. This is the next
-step.
+The initial configuration contract and field-level validation are complete.
+Finish the documented follow-ups while adding runtime support for the affected
+fields.
 
 ### 2. Single-process lifecycle
 
 Launch one command, configure its environment and output, record its PID, wait
-for it, and capture its exit result.
+for it, and capture its exit result. This is the active major milestone.
 
 ### 3. Supervisor runtime
 

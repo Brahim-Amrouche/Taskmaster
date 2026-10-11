@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use serde::Deserialize;
 use crate::validators::{
-	Command, ProcessCount, Stdin, Stdout, Umask, WorkingDir, RestartPolicy, ExitCodes
+	Command, ProcessCount, Stdin, Stdout, Umask, WorkingDir,
+	RestartPolicy, ExitCodes, ExitSignals
 };
 use std::fmt;
 
@@ -36,9 +37,9 @@ pub struct ProgramConfig {
 	pub exit_codes : ExitCodes,
 	pub runtime: u32,
 	pub restart_count: u32,
-	pub exit_signal: String,
+	pub exit_signal: ExitSignals,
 	pub kill_time: u32,
 	pub stdin: Stdin,
 	pub stdout: Stdout,
-	pub env: Vec<String>
+	pub env: HashMap<String, String>
 }

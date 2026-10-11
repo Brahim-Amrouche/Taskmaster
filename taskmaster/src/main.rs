@@ -1,6 +1,7 @@
 
 use config_parser::config_reader::ConfigReader;
 use config_parser::config::Config;
+use runtime::process::RuntimeProcess;
 
 fn main() -> Result<(), Box<dyn std::error::Error> > {
 	if let Err(error) = run() {
@@ -15,8 +16,11 @@ fn run() -> Result<(), Box<dyn std::error::Error> > {
 	config_reader.read()?;
 	let configs = config_reader.parse::<Config>()?;
 	for (_, conf) in configs.program.into_iter(){
-		println!("The value for program is {:?}",conf.command);
+		let mut process = RuntimeProcess::new(&conf);
+		process.run()?;
+		// println!("The value for program is {:?}",conf.command);
 	}
+
 	println!("Hello, world!");
 	Ok(())
 }
