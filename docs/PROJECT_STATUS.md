@@ -227,6 +227,31 @@ Do not add restart loops, multiple process instances, signals, reloads, or the
 interactive shell in this first runtime milestone. Each requires the reliable
 single-process lifecycle as its foundation.
 
+### Runtime architecture decision
+
+The final Unix supervisor will use manual FFI to call the operating system's
+process-control APIs. This adds no third-party Rust dependency: the project
+will declare only the required Unix functions and constants locally.
+
+The implementation will use `SIGCHLD` for child-exit notifications, a
+self-pipe to safely wake the supervisor loop, `waitpid` to reap children, and
+`kill` to send configured graceful-stop and forced-stop signals. Begin with
+safe standard-library process spawning, then isolate all FFI and `unsafe` code
+in one small Unix-specific module before connecting it to supervision logic.
+
+The initial self-pipe FFI checkpoint is complete. The Linux-only `unix` module
+declares `pipe2` and `close`, creates a non-blocking close-on-exec pipe, owns
+both descriptors through `Drop`, and has a unit test confirming that two valid,
+distinct descriptors are created. The next checkpoint is adding read/write
+operations so the self-pipe can carry a notification byte.
+
+The self-pipe now carries notification bytes through Unix `write` and `read`
+FFI calls. Its tests verify descriptor creation, one-byte notification and
+draining, and a second drain returning zero when the pipe is empty. The next
+checkpoint is installing a minimal `SIGCHLD` handler that writes this
+notification byte without performing normal Rust work in signal context.
+
+
 ## Configuration fields required by the assignment
 
 Each supervised program must eventually describe:

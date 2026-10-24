@@ -41,9 +41,8 @@ impl<'a> RuntimeProcess<'a>{
 	}
 
 	pub fn run(&mut self) -> RuntimeProcessResult<()> {
-		let out = Command::new(&self.config.command.path)
-		.output()?;
-		println!("{}",String::from_utf8_lossy(&out.stdout.to_ascii_lowercase()));
+		let child = Command::new(&self.config.command.path).spawn()?;
+		self.pid = child.id();
 		Ok(())
 	}
 }
