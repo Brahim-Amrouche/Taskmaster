@@ -251,6 +251,23 @@ draining, and a second drain returning zero when the pipe is empty. The next
 checkpoint is installing a minimal `SIGCHLD` handler that writes this
 notification byte without performing normal Rust work in signal context.
 
+The self-pipe now also wraps blocking Unix `poll` and has a test verifying
+that a notification makes the read descriptor readable. This is event waiting,
+not repeated child-status polling. The next implementation checkpoint remains
+the minimal `SIGCHLD` handler, followed by `waitpid` reaping.
+
+The Linux x86_64 `sigaction` FFI structures and installer are now implemented.
+The runtime tests save and restore the process-wide `SIGCHLD` disposition while
+verifying that handler installation succeeds. The next checkpoint is wiring a
+minimal handler to the self-pipe write descriptor; it must only perform a raw
+one-byte `write` before returning.
+
+The remaining FFI sequence is: install and test `SIGCHLD` notification; add
+`waitpid(..., WNOHANG)` child reaping; block `SIGCHLD` around child
+spawn/registration; then integrate the self-pipe and reaping into the safe
+supervisor event loop. Configured stop signals and restart policies come only
+after this lifecycle is reliable.
+
 
 ## Configuration fields required by the assignment
 
