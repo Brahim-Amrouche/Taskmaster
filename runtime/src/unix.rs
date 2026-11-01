@@ -1,6 +1,7 @@
 use std::ffi::{c_int, c_short, c_void, c_ulong};
 use std::io;
 use std::os::fd::RawFd;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 pub const O_NONBLOCK: c_int = 0o4000;
 pub const O_CLOEXEC: c_int = 0o2000000;
@@ -11,6 +12,10 @@ pub const POLLIN: c_short = 0x001;
 pub const POLLERR: c_short = 0x008;
 pub const SIGCHLD: c_int = 17;
 pub const SA_NOCLDSTOP: c_int = 1;
+pub const WNOHANG: c_int = 1;
+pub const ECHILD: c_int = 10;
+
+static SIGCHLD_WRITE_FD: AtomicI32  = AtomicI32::new(-1);
 
 #[repr(C)]
 struct PollFd {
@@ -47,6 +52,8 @@ unsafe extern "C" {
 	fn poll(fds: *mut PollFd, descriptor_count: usize, timeout: c_int) -> c_int;
 	fn sigemptyset(set: *mut SigSet) -> c_int;
 	fn sigaction(sig: c_int, sighandler:*const SigAction, previous_action: *mut SigAction) -> c_int;
+	fn __errno_location() -> *mut c_int;
+	fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
 }
 
 pub struct SelfPipe {
@@ -141,6 +148,7 @@ impl Drop for SelfPipe {
 		unsafe {
 			close(self.read_fd);
 			close(self.write_fd);
+
 		}
 	}
 }
@@ -171,17 +179,144 @@ pub fn install_sigchld_handler(handler: extern "C" fn(c_int)) -> io::Result<()>{
 }
 
 
+fn set_sigchld_write_fd(write_fd: RawFd){
+	SIGCHLD_WRITE_FD.store(write_fd, Ordering::Relaxed);
+}
+
+pub fn cleanup_sigchld_pipe(){
+	set_sigchld_write_fd(-1);
+}
+
+extern "C" fn sigchld_handler(_signal: c_int){
+	let write_fd: c_int = SIGCHLD_WRITE_FD.load(Ordering::Relaxed);
+	let errno_location = unsafe { __errno_location() };
+    let saved_errno = unsafe { *errno_location };
+	if write_fd == -1 { return };
+	let write_content:[u8;1] = [1];
+	unsafe {
+		write(write_fd, write_content.as_ptr() as *const c_void, 1)
+	};
+	unsafe {
+		*errno_location = saved_errno;
+	}
+	
+}
+
+pub fn configure_sigchld_notifications(pipe:&SelfPipe) -> io::Result<()> {
+	set_sigchld_write_fd(pipe.write_fd);
+	if let Err(e) = install_sigchld_handler(sigchld_handler) {
+		cleanup_sigchld_pipe();
+		return Err(e);
+	}
+	Ok(())
+}
+
+
+macro_rules! wif_exited {
+	($status: expr) => {
+		(($status & 0x7f) == 0 )
+	};
+}
+
+macro_rules! wexit_status {
+	($status: expr) => {
+		(($status >> 8) & 0xff)
+	};
+}
+
+macro_rules! wif_signaled {
+    ($status:expr) => {
+        (($status & 0x7f) != 0 && ($status & 0x7f) != 0x7f)
+    };
+}
+
+macro_rules! wterm_sig {
+	($status: expr) => {
+		($status & 0x7f)
+	};
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildTermination {
+	Exited {code : u8},
+	Signaled {signal: c_int}
+}
+
+impl ChildTermination {
+	fn from_status(status: c_int) -> io::Result<Self> {
+		let termination_state = match status {
+			s if wif_exited!(s) => Self::Exited { code: wexit_status!(s) as u8 },
+			s if  wif_signaled!(s) => Self::Signaled { signal: wterm_sig!(s)},
+			_ => return Err(io::Error::new(io::ErrorKind::InvalidData, "No valid status reaped"))
+		};
+		Ok(termination_state)
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReapedChild {
+	pub pid: u32,
+	pub termination: ChildTermination
+}
+
+pub fn reap_exited_children() -> io::Result<Vec<ReapedChild>> {
+	let mut reaped_children: Vec<ReapedChild> = Vec::new();
+	loop {
+		let mut status= 0 ;
+		let pid = unsafe {
+			waitpid(-1, &mut status, WNOHANG)
+		};
+		match pid {
+			p if p > 0 => {
+				let termination = ChildTermination::from_status(status)?;
+				let child_state = ReapedChild {
+					pid: pid as u32,
+					termination
+				};
+				reaped_children.push(child_state);
+				continue
+			}
+			p if p == 0 => {
+				return Ok(reaped_children);
+			}
+			_ => {
+				let last_os_error = io::Error::last_os_error();
+				match last_os_error {
+					e if e.kind() == io::ErrorKind::Interrupted  => {
+						continue;
+					},
+					e if e.raw_os_error() == Some(ECHILD) => {
+						return Ok(reaped_children);
+					},
+					_ => return Err(last_os_error)
+				}
+			}
+		}
+	}
+}
+
+
+
 #[cfg(test)]
 mod tests {
-	use super::{install_sigchld_handler, sigaction, SelfPipe, SigAction, SIGCHLD};
+	use super::{cleanup_sigchld_pipe, configure_sigchld_notifications, install_sigchld_handler, reap_exited_children, sigaction, ChildTermination, SelfPipe, SigAction, SIGCHLD};
 	use std::io;
 	use std::mem::MaybeUninit;
+	use std::process::Command;
 	use std::sync::Mutex;
 
 	static SIGNAL_HANDLER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 	struct RestoreSigchldAction {
 		action: SigAction,
+	}
+
+	struct ClearSigchldPipe;
+
+	impl Drop for ClearSigchldPipe {
+		fn drop(&mut self) {
+			cleanup_sigchld_pipe();
+		}
 	}
 
 	impl Drop for RestoreSigchldAction {
@@ -276,6 +411,95 @@ mod tests {
 
 		install_sigchld_handler(test_sigchld_handler)
 			.expect("SIGCHLD handler installation must succeed");
+	}
+
+	#[test]
+	fn decodes_normal_and_signal_termination_statuses() {
+		assert_eq!(
+			ChildTermination::from_status(42 << 8)
+				.expect("normal exit status must decode"),
+			ChildTermination::Exited { code: 42 },
+		);
+		assert_eq!(
+			ChildTermination::from_status(15)
+				.expect("signal termination status must decode"),
+			ChildTermination::Signaled { signal: 15 },
+		);
+	}
+
+	#[test]
+	fn child_exit_notifies_the_self_pipe() {
+		let _lock = SIGNAL_HANDLER_TEST_LOCK
+			.lock()
+			.expect("signal-handler test lock must not be poisoned");
+		let pipe = SelfPipe::new().expect("pipe2 must create a self-pipe");
+		let previous_action = current_sigchld_action()
+			.expect("current SIGCHLD action must be readable");
+		let _restore_action = RestoreSigchldAction {
+			action: previous_action,
+		};
+		let _clear_pipe = ClearSigchldPipe;
+
+		configure_sigchld_notifications(&pipe)
+			.expect("SIGCHLD notifications must be configured");
+
+		let mut child = Command::new("/usr/bin/true")
+			.spawn()
+			.expect("test child must start");
+
+		let readiness = pipe.wait_readable(1_000);
+		let is_readable = matches!(readiness.as_ref(), Ok(true));
+		let drained = if is_readable {
+			pipe.drain()
+		} else {
+			Ok(0)
+		};
+		let status = child.wait().expect("test child must be reaped");
+
+		assert!(readiness.expect("waiting for SIGCHLD notification must succeed"));
+		assert!(drained.expect("self-pipe drain must succeed") >= 1);
+		assert!(status.success());
+	}
+
+	#[test]
+	fn reaps_a_normally_exited_child() {
+		let _lock = SIGNAL_HANDLER_TEST_LOCK
+			.lock()
+			.expect("signal-handler test lock must not be poisoned");
+		let pipe = SelfPipe::new().expect("pipe2 must create a self-pipe");
+		let previous_action = current_sigchld_action()
+			.expect("current SIGCHLD action must be readable");
+		let _restore_action = RestoreSigchldAction {
+			action: previous_action,
+		};
+		let _clear_pipe = ClearSigchldPipe;
+
+		configure_sigchld_notifications(&pipe)
+			.expect("SIGCHLD notifications must be configured");
+
+		let child = Command::new("/usr/bin/true")
+			.spawn()
+			.expect("test child must start");
+		let child_pid = child.id();
+
+		assert!(
+			pipe.wait_readable(1_000)
+				.expect("child exit must notify the self-pipe")
+		);
+		pipe.drain().expect("self-pipe drain must succeed");
+
+		let reaped = reap_exited_children()
+			.expect("exited child must be reaped");
+
+		assert!(reaped.iter().any(|child| {
+			child.pid == child_pid
+				&& child.termination == ChildTermination::Exited { code: 0 }
+		}));
+		assert!(
+			reap_exited_children()
+				.expect("second reap must succeed")
+				.is_empty()
+		);
 	}
 }
 

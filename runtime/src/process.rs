@@ -1,11 +1,12 @@
-use std::process::{ExitStatus, Command};
+use std::process::{Command};
 use config_parser::config::ProgramConfig;
+use crate::unix::ChildTermination;
 use std::error::Error;
 
 pub struct RuntimeProcess<'a> {
 	config: &'a ProgramConfig,
 	pid: u32,
-	exit_status: Option<ExitStatus>
+	exit_status: Option<ChildTermination>
 }
 
 #[derive(Debug)]

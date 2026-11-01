@@ -262,11 +262,28 @@ verifying that handler installation succeeds. The next checkpoint is wiring a
 minimal handler to the self-pipe write descriptor; it must only perform a raw
 one-byte `write` before returning.
 
-The remaining FFI sequence is: install and test `SIGCHLD` notification; add
-`waitpid(..., WNOHANG)` child reaping; block `SIGCHLD` around child
-spawn/registration; then integrate the self-pipe and reaping into the safe
-supervisor event loop. Configured stop signals and restart policies come only
-after this lifecycle is reliable.
+The `SIGCHLD` notification bridge is now implemented and tested end to end.
+The handler obtains the configured self-pipe write descriptor from atomic
+storage, writes one notification byte, and returns without performing process
+management in signal context. The configuration helper clears the stored
+descriptor if handler installation fails, and explicit cleanup disables later
+writes before the pipe is discarded. The test spawns `/usr/bin/true`, observes
+the self-pipe become readable through `poll`, drains it, reaps the test child,
+and restores the previous process-wide `SIGCHLD` action.
+
+Non-blocking child reaping is now complete. The Linux `waitpid` FFI is called
+with `WNOHANG` in a loop, converting every returned PID and raw wait status to
+`ReapedChild` and `ChildTermination` values. The loop retries `EINTR`, ends
+normally on `0` or `ECHILD`, and propagates unexpected OS errors. Tests cover
+raw normal-exit and signal-termination status decoding plus an end-to-end
+child exit, self-pipe wake-up, and manual reaping sequence.
+
+The next FFI checkpoint is blocking `SIGCHLD` around child spawn and runtime
+registration, closing the race in which a fast child exits before the
+supervisor has recorded its PID. After that, connect the self-pipe and reaper
+to the safe supervisor event loop, then update the matching `RuntimeProcess`
+with each collected termination result. Configured stop signals and restart
+policies come only after this lifecycle is reliable.
 
 
 ## Configuration fields required by the assignment
