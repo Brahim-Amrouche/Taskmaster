@@ -278,12 +278,19 @@ normally on `0` or `ECHILD`, and propagates unexpected OS errors. Tests cover
 raw normal-exit and signal-termination status decoding plus an end-to-end
 child exit, self-pipe wake-up, and manual reaping sequence.
 
-The next FFI checkpoint is blocking `SIGCHLD` around child spawn and runtime
-registration, closing the race in which a fast child exits before the
-supervisor has recorded its PID. After that, connect the self-pipe and reaper
-to the safe supervisor event loop, then update the matching `RuntimeProcess`
-with each collected termination result. Configured stop signals and restart
-policies come only after this lifecycle is reliable.
+The `SIGCHLD` mask guard is now implemented. It builds a signal set through
+`sigemptyset` and `sigaddset`, blocks `SIGCHLD` with `sigprocmask`, retains the
+previous thread mask, and restores that exact mask in `Drop`. Tests verify the
+mask state and use a thread-directed `SIGCHLD` to confirm delivery is deferred
+until the guard is dropped. A process-directed child signal cannot provide the
+same deterministic unit test under Rust's multi-threaded test runner because
+another unmasked test thread may receive it.
+
+The next implementation stage connects these Unix primitives to Taskmaster's
+actual lifecycle: create and configure the self-pipe once, install the handler,
+block `SIGCHLD`, spawn and register a `RuntimeProcess`, restore the mask, then
+poll, drain, reap, and update the matching process by PID. Configured stop
+signals and restart policies come only after this lifecycle is reliable.
 
 
 ## Configuration fields required by the assignment

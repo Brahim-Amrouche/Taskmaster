@@ -14,6 +14,8 @@ pub const SIGCHLD: c_int = 17;
 pub const SA_NOCLDSTOP: c_int = 1;
 pub const WNOHANG: c_int = 1;
 pub const ECHILD: c_int = 10;
+pub const SIG_BLOCK: c_int = 0;
+pub const SIG_SETMASK: c_int  = 2;
 
 static SIGCHLD_WRITE_FD: AtomicI32  = AtomicI32::new(-1);
 
@@ -30,6 +32,7 @@ union SignalHandler {
 	handler: extern "C" fn(c_int)
 }
 
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 struct SigSet {
 	value: [c_ulong;16],
@@ -41,7 +44,11 @@ struct SigAction {
 	mask: SigSet,
 	flags: c_int,
 	restorer: Option<extern "C" fn()>
-}	
+}
+
+pub struct SigChldMaskGuard{
+	previous_mask: SigSet
+}
 
 #[link(name = "c")]
 unsafe extern "C" {
@@ -54,6 +61,12 @@ unsafe extern "C" {
 	fn sigaction(sig: c_int, sighandler:*const SigAction, previous_action: *mut SigAction) -> c_int;
 	fn __errno_location() -> *mut c_int;
 	fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
+	fn sigaddset(set: *mut SigSet, signum: c_int) -> c_int;
+	fn sigprocmask(how: c_int, set: *const SigSet, old_set: *mut SigSet) -> c_int;
+	#[cfg(test)]
+	fn sigismember(set: *const SigSet, signum: c_int) -> c_int;
+	#[cfg(test)]
+	fn raise(signum: c_int) -> c_int;
 }
 
 pub struct SelfPipe {
@@ -297,9 +310,40 @@ pub fn reap_exited_children() -> io::Result<Vec<ReapedChild>> {
 
 
 
+impl SigChldMaskGuard {
+	pub fn block() -> io::Result<Self> {
+		let mut previous_mask = SigSet{ value: [0;16] };
+		match unsafe { sigemptyset(&mut previous_mask) } {
+			-1 => return Err(io::Error::last_os_error()),
+			_ => ()
+		};
+		let mut to_be_masked = previous_mask.clone();
+
+		match unsafe { sigaddset(&mut to_be_masked, SIGCHLD) } {
+			-1 => return Err(io::Error::last_os_error()),
+			_ => ()
+		};
+
+		match unsafe { sigprocmask(SIG_BLOCK, &to_be_masked, &mut previous_mask) } {
+			-1 => return Err(io::Error::last_os_error()),
+			_ => ()
+		};
+		return Ok(Self {previous_mask});
+	}
+}
+
+impl Drop for SigChldMaskGuard {
+	fn drop(&mut self) {
+		unsafe {
+			sigprocmask(SIG_SETMASK, &self.previous_mask, std::ptr::null_mut())
+		};
+	}
+}
+
+
 #[cfg(test)]
 mod tests {
-	use super::{cleanup_sigchld_pipe, configure_sigchld_notifications, install_sigchld_handler, reap_exited_children, sigaction, ChildTermination, SelfPipe, SigAction, SIGCHLD};
+	use super::{cleanup_sigchld_pipe, configure_sigchld_notifications, install_sigchld_handler, raise, reap_exited_children, sigaction, sigismember, sigprocmask, ChildTermination, SelfPipe, SigAction, SigChldMaskGuard, SigSet, SIG_BLOCK, SIGCHLD};
 	use std::io;
 	use std::mem::MaybeUninit;
 	use std::process::Command;
@@ -312,7 +356,7 @@ mod tests {
 	}
 
 	struct ClearSigchldPipe;
-
+  
 	impl Drop for ClearSigchldPipe {
 		fn drop(&mut self) {
 			cleanup_sigchld_pipe();
@@ -344,6 +388,29 @@ mod tests {
 
 		// SAFETY: sigaction returned success and initialized action fully.
 		Ok(unsafe { action.assume_init() })
+	}
+
+	fn sigchld_is_blocked() -> io::Result<bool> {
+		let mut current_mask = MaybeUninit::<SigSet>::uninit();
+
+		// SAFETY: a null set asks sigprocmask not to alter the current mask;
+		// current_mask is writable storage for the mask returned by the kernel.
+		let result = unsafe {
+			sigprocmask(SIG_BLOCK, std::ptr::null(), current_mask.as_mut_ptr())
+		};
+		if result == -1 {
+			return Err(io::Error::last_os_error());
+		}
+
+		// SAFETY: sigprocmask returned success and initialized current_mask.
+		let current_mask = unsafe { current_mask.assume_init() };
+		// SAFETY: current_mask is a valid signal set returned by sigprocmask.
+		let result = unsafe { sigismember(&current_mask, SIGCHLD) };
+		if result == -1 {
+			return Err(io::Error::last_os_error());
+		}
+
+		Ok(result == 1)
 	}
 
 	extern "C" fn test_sigchld_handler(_signal: i32) {}
@@ -411,6 +478,28 @@ mod tests {
 
 		install_sigchld_handler(test_sigchld_handler)
 			.expect("SIGCHLD handler installation must succeed");
+	}
+
+	#[test]
+	fn sigchld_mask_guard_blocks_and_restores_sigchld() {
+		let _lock = SIGNAL_HANDLER_TEST_LOCK
+			.lock()
+			.expect("signal-handler test lock must not be poisoned");
+		let was_blocked = sigchld_is_blocked()
+			.expect("current signal mask must be readable");
+
+		{
+			let _guard = SigChldMaskGuard::block()
+				.expect("SIGCHLD mask guard must be created");
+			assert!(
+				sigchld_is_blocked().expect("SIGCHLD must be readable from signal mask")
+			);
+		}
+
+		assert_eq!(
+			sigchld_is_blocked().expect("restored signal mask must be readable"),
+			was_blocked
+		);
 	}
 
 	#[test]
@@ -499,7 +588,47 @@ mod tests {
 			reap_exited_children()
 				.expect("second reap must succeed")
 				.is_empty()
+		); 
+	}
+
+	#[test]
+	fn defers_thread_directed_sigchld_until_mask_guard_is_dropped() {
+		let _lock = SIGNAL_HANDLER_TEST_LOCK
+			.lock()
+			.expect("signal-handler test lock must not be poisoned");
+		assert!(
+			!sigchld_is_blocked().expect("current signal mask must be readable"),
+			"test requires SIGCHLD to be initially unblocked"
 		);
+		let pipe = SelfPipe::new().expect("pipe2 must create a self-pipe");
+		let previous_action = current_sigchld_action()
+			.expect("current SIGCHLD action must be readable");
+		let _restore_action = RestoreSigchldAction {
+			action: previous_action,
+		};
+		let _clear_pipe = ClearSigchldPipe;
+
+		configure_sigchld_notifications(&pipe)
+			.expect("SIGCHLD notifications must be configured");
+
+		let guard = SigChldMaskGuard::block()
+			.expect("SIGCHLD mask guard must be created");
+		// SAFETY: raise sends SIGCHLD to this test thread, where the guard has
+		// blocked it. The configured handler is safe for SIGCHLD delivery.
+		assert_eq!(unsafe { raise(SIGCHLD) }, 0);
+
+		assert!(
+			!pipe.wait_readable(100)
+				.expect("blocked SIGCHLD must not notify the self-pipe")
+		);
+
+		drop(guard);
+
+		assert!(
+			pipe.wait_readable(1_000)
+				.expect("unblocked SIGCHLD must notify the self-pipe")
+		);
+		pipe.drain().expect("self-pipe drain must succeed");
 	}
 }
 
