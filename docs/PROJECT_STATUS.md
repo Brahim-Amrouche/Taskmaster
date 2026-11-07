@@ -81,18 +81,19 @@ parameter identifies the role of the target at compile time.
 
 The current marker types are:
 
-- `StdinOutputTarget`
 - `StdoutOutputTarget`
+- `StderrOutputTarget`
 
 Convenient aliases are provided:
 
 ```rust
-type Stdin = OutputTarget<StdinOutputTarget>;
 type Stdout = OutputTarget<StdoutOutputTarget>;
+type Stderr = OutputTarget<StderrOutputTarget>;
 ```
 
-The `OutputTargetsType` trait defines role-specific behavior through `name()`
-and `validate()` methods. Each marker type implements that trait separately.
+The `OutputTargetsType` trait defines role-specific behavior through `name()`,
+`default_target()`, and `validate()` methods. Each marker type implements that
+trait separately.
 
 ### Serde and `TryFrom`
 
@@ -118,22 +119,11 @@ where
 
 This prevents unsupported marker types from using the conversion.
 
-### Current stdin behavior
+### Current output behavior
 
-The stdin validator currently requires the configured path to be an existing
-regular file. Therefore:
-
-```toml
-stdin = "x"
-```
-
-fails unless `x` exists as a file relative to the process working directory.
-The path value is interpreted by the operating system; `PathBuf::from("x")`
-does not create the file.
-
-The current stdout validator accepts an existing directory and appends
-`stdout.log` to it. Its behavior still needs to be completed for nonexistent
-output paths and final output-file creation rules.
+Both stdout and stderr accept a file path. A directory expands to `stdout.log`
+or `stderr.log` respectively, and an empty value selects the corresponding
+default file. The selected file is created when the process is started.
 
 ### Error propagation
 
@@ -168,10 +158,8 @@ The tests currently verify:
   without an execute bit;
 - splitting a valid command into its executable path and arguments;
 - `Command::try_from` storing the parsed command;
-- stdin acceptance of an existing regular file and rejection of missing files
-  and directories;
-- stdout directory expansion to `stdout.log` and its current acceptance of a
-  nonexistent output path;
+- stdout and stderr directory expansion to role-specific log filenames and
+acceptance of nonexistent output paths;
 - working-directory acceptance for existing directories and rejection of empty,
   whitespace-only, missing, and regular-file paths;
 - process-count acceptance of positive values and rejection of zero, including
@@ -198,17 +186,16 @@ cargo test -p config-parser
 ### Configuration validation baseline complete
 
 The sample configuration now deserializes successfully through `ConfigReader`
-and `ProgramConfig`. The configuration-parser crate has 39 passing tests and
+and `ProgramConfig`. The configuration-parser crate has 38 passing tests and
 the workspace passes `cargo check`.
 
 Validated configuration types now cover command/executable paths, working
-directories, stdin/stdout targets, process count, restart policy, expected exit
+directories, stdout/stderr targets, process count, restart policy, expected exit
 codes, umask, exit signal, and the TOML map shape of environment variables.
 
 ### Remaining configuration follow-ups
 
 - Rename the misleading `chmod` key and field to `umask`.
-- Add an independently configured `stderr` target, required by the assignment.
 - Validate environment-variable names before process launch.
 - Decide and document units and zero-value behavior for startup time, restart
   count, and stop timeout.
@@ -220,7 +207,7 @@ codes, umask, exit signal, and the TOML map shape of environment variables.
 
 The `runtime` crate is currently unimplemented. Begin with one `ProgramConfig`
 and one child process: construct `std::process::Command`, apply the executable
-arguments, working directory, environment, stdin/stdout settings, spawn it,
+arguments, working directory, environment, stdout/stderr settings, spawn it,
 record its PID, wait for its exit, and return a structured exit result.
 
 Do not add restart loops, multiple process instances, signals, reloads, or the
@@ -340,7 +327,7 @@ restart decisions, and process-group management remain supervisor
 responsibilities.
 
 `RuntimeProcess::start` now applies the parsed executable arguments, working
-directory, environment, stdin, and stdout settings before spawning and records
+directory, environment, stdout, and stderr settings before spawning and records
 the resulting PID as `Running`. A focused runtime test uses a temporary shell
 program to verify all of those settings through its stdout. It reaps only the
 child it started. The process test also shares the Unix signal-test lock,
@@ -356,9 +343,9 @@ result. Only then should `Supervisor` connect it to the self-pipe event loop.
 
 `RuntimeProcess` now exposes its state, PID, running status, PID matching, and
 exit recording. Its launch behavior applies `command`, arguments, `chdir`,
-environment variables, stdin, and stdout. The remaining required settings
-divide into two categories: `stderr` and `umask` must first be represented and
-applied while constructing a child process; process count, autostart, restart
+environment variables, stdout, and stderr. The remaining required setting
+that affects child construction is `umask`; it must be applied while creating
+the child process. Process count, autostart, restart
 policy, expected exit codes, startup timing, retry count, stop signal, and
 stop timeout are supervisor policy and must not be implemented as hidden loops
 inside `RuntimeProcess`.
@@ -368,6 +355,55 @@ second start while `Running`; permit a new start after an exit for a supervisor
 approved restart; include the reaped PID in exit recording and reject a
 mismatched or non-running process; and introduce `Starting` and `Stopping`
 states when timing and graceful-stop behavior are added.
+
+### RuntimeProcess lifecycle API complete — 2026-11-07
+
+The current `RuntimeProcess` API now implements the reviewed transition rules:
+it rejects a second start while `Running`, permits restart after `Exited`, and
+records an exit only when a matching running PID is provided. Tests verify the
+launch configuration, state/PID queries, duplicate-start rejection, mismatched
+PID rejection, exit transition, and restart after a recorded exit. The runtime
+suite has 10 passing tests.
+
+The next runtime milestone is now safe to begin: let `Supervisor` own the
+single self-pipe lifecycle and use `reap_exited_children` to find a matching
+`RuntimeProcess`, then call its PID-checked exit-recording API. Do not add
+restart policy decisions yet; first prove one child can move from `Running` to
+`Exited` via the actual SIGCHLD notification path.
+
+### Deferred supervisor work — process-construction focus
+
+Supervisor integration is intentionally deferred. The active work is instead
+to complete the child-process construction contract. Stdout and stderr are now
+represented independently and are both applied by `RuntimeProcess`; decide
+their final file-open behavior, rename `chmod` to `umask`, and apply the
+configured umask in the child immediately before exec. `RuntimeProcess` should
+then build a child with command arguments, working directory, environment,
+stdout, stderr, and umask. Process count,
+autostart, restart policy, expected exit codes, startup time, restart count,
+stop signal, and stop timeout remain stored configuration only until the
+supervisor milestone resumes.
+
+### Umask launch handling complete — 2026-11-07
+
+The configuration key and field are now named `umask`. When it is present,
+`RuntimeProcess` installs a minimal Unix `pre_exec` hook that applies the
+validated mask in the forked child before the configured command executes. The
+parent Taskmaster process is therefore unaffected. The runtime launch test
+configures `027`, has the child create a file, and verifies its mode is `0640`.
+
+The next process-construction task is finalizing output-target behavior. Choose
+and test append or truncate semantics for redirected files, then add an
+explicit discard representation that maps stdout or stderr to `Stdio::null()`.
+
+### Output-target behavior complete — 2026-11-07
+
+`stdout` and `stderr` are optional configuration fields. When either field is
+omitted, `RuntimeProcess` redirects that stream to `Stdio::null()`. When a
+field is supplied, its file is created as needed and truncated on each child
+start. Tests verify existing-file truncation and successful child execution
+with both streams discarded. The workspace currently passes 39
+configuration-parser tests and 11 runtime tests.
 
 
 ## Configuration fields required by the assignment
@@ -389,8 +425,8 @@ Each supervised program must eventually describe:
 - working directory;
 - umask.
 
-The current model covers many of these fields, but still needs `stderr`,
-`umask`, stronger types, and validation.
+The current model covers many of these fields, but still needs `umask` to be
+applied at process launch, stronger types, and validation.
 
 ## Roadmap
 

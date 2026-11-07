@@ -4,10 +4,9 @@ use std::path::{PathBuf};
 use std::marker::PhantomData;
 use std::fs::{File, OpenOptions};
 
-const DEFAULT_TARGET_OUTPUT: &str = "./stdout.log";
-
 pub trait OutputTargetsType {
 	fn name() ->  &'static str;
+	fn default_target() -> &'static str;
 	fn validate(path: &mut PathBuf) -> Result<(), String>;
 }
 
@@ -24,10 +23,20 @@ impl<T: OutputTargetsType>  TryFrom<String> for OutputTarget<T> {
 	fn try_from(value: String) -> Result<OutputTarget<T>, Self::Error> {
 		let mut target = match &value {
 			v if v.len() > 0  => PathBuf::from(v),
-			_ => PathBuf::from(DEFAULT_TARGET_OUTPUT)
+			_ => PathBuf::from(T::default_target())
 		};
 		T::validate(&mut target)?;
 		return  Ok(OutputTarget {target, _kind: PhantomData});
+	}
+}
+
+impl<T:OutputTargetsType> OutputTarget<T> {
+	pub fn open_stream(&self) -> std::io::Result<File>{
+		OpenOptions::new()
+			.write(true)
+			.truncate(true)
+			.create(true)
+			.open(&self.target)
 	}
 }
 
@@ -35,42 +44,36 @@ impl<T: OutputTargetsType>  TryFrom<String> for OutputTarget<T> {
 #[derive(Debug)]
 pub struct StdoutOutputTarget;
 #[derive(Debug)]
-pub struct StdinOutputTarget;
+pub struct StderrOutputTarget;
 
-pub type Stdin = OutputTarget<StdinOutputTarget>;
 pub type Stdout = OutputTarget<StdoutOutputTarget>;
+pub type Stderr = OutputTarget<StderrOutputTarget>;
 
-impl OutputTargetsType for StdinOutputTarget {
+impl OutputTargetsType for StderrOutputTarget {
 	fn name() ->  &'static str {
-		"StdinOutputTarget"
+		"StderrOutputTarget"
+	}
+
+	fn default_target() -> &'static str {
+		"./stderr.log"
 	}
 
 	fn validate(path: &mut PathBuf) -> Result<(), String> {
-		if !path.is_file(){
-			return Err("Stdin should be a valid file".into());
+		if path.is_dir(){
+			path.push("stderr.log");
 		}
 		return  Ok(());
 	}
 }
 
-impl Stdin {
-	pub fn open_stream(&self) -> std::io::Result<File>{
-		File::open(&self.target)
-	}
-}
-
-impl Stdout {
-	pub fn open_stream(&self) -> std::io::Result<File>{
-		OpenOptions::new()
-			.write(true)
-			.create(true)
-			.open(&self.target)
-	}
-}
 
 impl OutputTargetsType for StdoutOutputTarget  {
 	fn name() ->  &'static str {
 		"StdoutOutputTarget"
+	}
+
+	fn default_target() -> &'static str {
+		"./stdout.log"
 	}
 	
 	fn validate(path: &mut PathBuf) -> Result<(), String> {
@@ -84,8 +87,9 @@ impl OutputTargetsType for StdoutOutputTarget  {
 
 #[cfg(test)]
 mod tests {
-	use super::{Stdin, Stdout};
+	use super::{Stderr, Stdout};
 	use std::fs;
+	use std::io::Write;
 	use std::path::PathBuf;
 	use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -99,35 +103,6 @@ mod tests {
 			"taskmaster-output-{name}-{}-{timestamp}",
 			std::process::id()
 		))
-	}
-
-	#[test]
-	fn stdin_requires_an_existing_regular_file() {
-		let path = temporary_path("stdin");
-		fs::write(&path, "input").expect("temporary input file must be created");
-
-		let result = Stdin::try_from(path.to_string_lossy().into_owned());
-		fs::remove_file(&path).expect("temporary input file must be removed");
-
-		let target = result.expect("an existing file is a valid stdin target");
-		assert_eq!(target.target, path);
-	}
-
-	#[test]
-	fn stdin_rejects_a_missing_file() {
-		let path = temporary_path("missing-stdin");
-		let error = Stdin::try_from(path.to_string_lossy().into_owned())
-			.expect_err("a missing stdin file must fail");
-
-		assert_eq!(error, "Stdin should be a valid file");
-	}
-
-	#[test]
-	fn stdin_rejects_a_directory() {
-		let error = Stdin::try_from("/tmp".to_string())
-			.expect_err("directories are not valid stdin files");
-
-		assert_eq!(error, "Stdin should be a valid file");
 	}
 
 	#[test]
@@ -145,5 +120,40 @@ mod tests {
 			.expect("stdout currently accepts paths that do not exist yet");
 
 		assert_eq!(target.target, path);
+	}
+
+	#[test]
+	fn stderr_appends_a_filename_when_given_a_directory() {
+		let target = Stderr::try_from("/tmp".to_string())
+			.expect("a directory is a valid stderr target");
+
+		assert_eq!(target.target, PathBuf::from("/tmp/stderr.log"));
+	}
+
+	#[test]
+	fn stderr_uses_its_own_default_file() {
+		let target = Stderr::try_from(String::new())
+			.expect("an empty stderr target must use the default file");
+
+		assert_eq!(target.target, PathBuf::from("./stderr.log"));
+	}
+
+	#[test]
+	fn opening_an_output_stream_truncates_an_existing_file() {
+		let path = temporary_path("truncate");
+		fs::write(&path, "old output that must be removed")
+			.expect("existing output must be written");
+		let target = Stdout::try_from(path.to_string_lossy().into_owned())
+			.expect("output path must be valid");
+
+		let mut stream = target.open_stream().expect("output stream must open");
+		stream.write_all(b"new output").expect("new output must be written");
+		drop(stream);
+
+		assert_eq!(
+			fs::read_to_string(&path).expect("truncated output must be readable"),
+			"new output"
+		);
+		fs::remove_file(&path).expect("temporary output must be removed");
 	}
 }

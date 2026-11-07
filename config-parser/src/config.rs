@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use serde::Deserialize;
 use crate::validators::{
-	Command, ProcessCount, Stdin, Stdout, Umask, WorkingDir,
+	Command, ProcessCount, Stderr, Stdout, Umask, WorkingDir,
 	RestartPolicy, ExitCodes, ExitSignals
 };
 use std::fmt;
@@ -30,7 +30,7 @@ impl fmt::Display for ConfigValidationError {
 pub struct ProgramConfig {
 	pub command: Command,
 	pub chdir: WorkingDir,
-	pub chmod: Option<Umask>,
+	pub umask: Option<Umask>,
 	pub process_count: ProcessCount,
 	pub auto_start: bool,
 	pub restart_protocol: RestartPolicy,
@@ -39,7 +39,7 @@ pub struct ProgramConfig {
 	pub restart_count: u32,
 	pub exit_signal: ExitSignals,
 	pub kill_time: u32,
-	pub stdin: Stdin,
-	pub stdout: Stdout,
+	pub stdout: Option<Stdout>,
+	pub stderr: Option<Stderr>,
 	pub env: HashMap<String, String>
 }

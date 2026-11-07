@@ -1,7 +1,7 @@
 [program.Test]
 command = "/usr/bin/ls"
 chdir = "./config-parser"
-chmod = "111"
+umask = "111"
 process_count = 3
 auto_start = true
 restart_protocol = "never"
@@ -10,6 +10,6 @@ runtime = 5
 restart_count = 3
 exit_signal = "TERM"
 kill_time = 10
-stdin = "./stdin"
 stdout = "./stdout"
+stderr = "./stderr"
 env = { MAN = "hello" , WORKERS = "4"}

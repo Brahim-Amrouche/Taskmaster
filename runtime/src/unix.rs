@@ -1,4 +1,4 @@
-use std::ffi::{c_int, c_short, c_void, c_ulong};
+use std::ffi::{c_int, c_short, c_void, c_ulong, c_uint};
 use std::io;
 use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -72,6 +72,13 @@ unsafe extern "C" {
 	fn sigismember(set: *const SigSet, signum: c_int) -> c_int;
 	#[cfg(test)]
 	fn raise(signum: c_int) -> c_int;
+	fn umask(mask: c_uint) -> c_uint;
+}
+
+pub fn set_umask(mask: u16) {
+	unsafe {
+		umask(mask.into());
+	}
 }
 
 pub struct SelfPipe {

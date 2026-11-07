@@ -8,7 +8,7 @@ pub mod exit_codes;
 pub mod exit_signals;
 
 pub use command::Command;
-pub use output_targets::{Stdin, Stdout};
+pub use output_targets::{Stderr, Stdout};
 pub use working_dir::WorkingDir;
 pub use umask::Umask;
 pub use process_count::ProcessCount;
