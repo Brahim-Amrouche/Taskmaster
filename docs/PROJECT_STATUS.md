@@ -339,6 +339,19 @@ and accepting a matching reaped termination result. Waiting, `SIGCHLD` handling,
 restart decisions, and process-group management remain supervisor
 responsibilities.
 
+`RuntimeProcess::start` now applies the parsed executable arguments, working
+directory, environment, stdin, and stdout settings before spawning and records
+the resulting PID as `Running`. A focused runtime test uses a temporary shell
+program to verify all of those settings through its stdout. It reaps only the
+child it started. The process test also shares the Unix signal-test lock,
+because spawning a child emits process-wide `SIGCHLD` notifications that must
+not race tests temporarily installing a handler. The runtime crate now has 10
+passing tests.
+
+The next `RuntimeProcess` API work is to expose read-only state and PID access,
+reject `start` while already running, and accept a matching reaped termination
+result. Only then should `Supervisor` connect it to the self-pipe event loop.
+
 
 ## Configuration fields required by the assignment
 

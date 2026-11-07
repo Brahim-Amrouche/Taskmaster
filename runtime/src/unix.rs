@@ -2,6 +2,8 @@ use std::ffi::{c_int, c_short, c_void, c_ulong};
 use std::io;
 use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicI32, Ordering};
+#[cfg(test)]
+use std::sync::Mutex;
 
 pub const O_NONBLOCK: c_int = 0o4000;
 pub const O_CLOEXEC: c_int = 0o2000000;
@@ -18,6 +20,9 @@ pub const SIG_BLOCK: c_int = 0;
 pub const SIG_SETMASK: c_int  = 2;
 
 static SIGCHLD_WRITE_FD: AtomicI32  = AtomicI32::new(-1);
+
+#[cfg(test)]
+pub(crate) static SIGNAL_HANDLER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[repr(C)]
 struct PollFd {
@@ -343,14 +348,10 @@ impl Drop for SigChldMaskGuard {
 
 #[cfg(test)]
 mod tests {
-	use super::{cleanup_sigchld_pipe, configure_sigchld_notifications, install_sigchld_handler, raise, reap_exited_children, sigaction, sigismember, sigprocmask, ChildTermination, SelfPipe, SigAction, SigChldMaskGuard, SigSet, SIG_BLOCK, SIGCHLD};
+	use super::{cleanup_sigchld_pipe, configure_sigchld_notifications, install_sigchld_handler, raise, reap_exited_children, sigaction, sigismember, sigprocmask, ChildTermination, SelfPipe, SigAction, SigChldMaskGuard, SigSet, SIGNAL_HANDLER_TEST_LOCK, SIG_BLOCK, SIGCHLD};
 	use std::io;
 	use std::mem::MaybeUninit;
 	use std::process::Command;
-	use std::sync::Mutex;
-
-	static SIGNAL_HANDLER_TEST_LOCK: Mutex<()> = Mutex::new(());
-
 	struct RestoreSigchldAction {
 		action: SigAction,
 	}
