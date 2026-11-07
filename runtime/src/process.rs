@@ -19,7 +19,8 @@ pub struct RuntimeProcess<'a> {
 #[derive(Debug)]
 pub enum RuntimeProcessError {
 	DEFAULT(String),
-	NotAllowedProcessRestart
+	NotAllowedProcessRestart,
+	NotRunningChildTerminated,
 }
 
 impl Error for RuntimeProcessError {}
@@ -29,7 +30,8 @@ impl std::fmt::Display for RuntimeProcessError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::DEFAULT(s) => write!(f,"Runtime Process Error: {}", s),
-			Self::NotAllowedProcessRestart => write!(f, "Not allowed to restart same process")
+			Self::NotAllowedProcessRestart => write!(f, "Not allowed to restart same process"),
+			Self::NotRunningChildTerminated => write!(f, "Child terminated when not running")
 		}
 	}
 }
@@ -58,7 +60,7 @@ impl<'a> RuntimeProcess<'a>{
 
 	pub fn start(&mut self) -> RuntimeProcessResult<u32> {
 		match self.status {
-			RuntimeProcessState::Exited { .. } | RuntimeProcessState::Running { .. } 
+			RuntimeProcessState::Running { .. } 
 				=> return Err(RuntimeProcessError::NotAllowedProcessRestart),
 			_ => ()
 		};
@@ -74,6 +76,41 @@ impl<'a> RuntimeProcess<'a>{
 		Ok(pid)
 	}
 
+	pub fn state(&self) -> &RuntimeProcessState {
+		&self.status
+	}
+
+	pub fn pid(&self) -> Option<u32> {
+		match self.status {
+			RuntimeProcessState::Exited { .. } | RuntimeProcessState::NotStarted => None,
+			RuntimeProcessState::Running { pid } => Some(pid)
+		}
+	}
+
+	pub fn is_running(&self) -> bool {
+		match self.status {
+			RuntimeProcessState::Exited { .. } | RuntimeProcessState::NotStarted => false,
+			RuntimeProcessState::Running { .. } => true
+		}
+	}
+
+	pub fn matches_pid(&self, pid: u32) -> bool {
+		if let Some(curr_pid) = self.pid() && curr_pid == pid {
+			return true;
+		}
+		false
+	}
+
+	pub fn record_exit(&mut self, termination : ChildTermination) -> RuntimeProcessResult<()> {
+		match self.status {
+			RuntimeProcessState::Exited { .. } | RuntimeProcessState::NotStarted => Err(RuntimeProcessError::NotRunningChildTerminated),
+			RuntimeProcessState::Running { .. } => {
+				self.status = RuntimeProcessState::Exited { termination };
+				Ok(())
+			}
+		}
+	}
+	
 }
 
 #[cfg(test)]

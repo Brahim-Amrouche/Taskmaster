@@ -352,6 +352,23 @@ The next `RuntimeProcess` API work is to expose read-only state and PID access,
 reject `start` while already running, and accept a matching reaped termination
 result. Only then should `Supervisor` connect it to the self-pipe event loop.
 
+### RuntimeProcess configuration-scope review — 2026-11-07
+
+`RuntimeProcess` now exposes its state, PID, running status, PID matching, and
+exit recording. Its launch behavior applies `command`, arguments, `chdir`,
+environment variables, stdin, and stdout. The remaining required settings
+divide into two categories: `stderr` and `umask` must first be represented and
+applied while constructing a child process; process count, autostart, restart
+policy, expected exit codes, startup timing, retry count, stop signal, and
+stop timeout are supervisor policy and must not be implemented as hidden loops
+inside `RuntimeProcess`.
+
+Before supervisor integration, refine process state transitions: reject only a
+second start while `Running`; permit a new start after an exit for a supervisor
+approved restart; include the reaped PID in exit recording and reject a
+mismatched or non-running process; and introduce `Starting` and `Stopping`
+states when timing and graceful-stop behavior are added.
+
 
 ## Configuration fields required by the assignment
 
