@@ -70,7 +70,9 @@ impl<'a> RuntimeProcess<'a>{
 		let mut command = Command::new(&self.config.command.path);
 		command.args(&self.config.command.args);
 		command.current_dir(&self.config.chdir.path);
-		command.envs(&self.config.env);
+		if let Some(var) = self.config.env.as_ref() {
+			command.envs(&var.values);
+		}
 		match &self.config.stdout {
 			Some(target) => command.stdout(target.open_stream()?),
 			None => command.stdout(Stdio::null()) 
@@ -137,7 +139,7 @@ mod tests {
 	use crate::unix::{ChildTermination, SIGNAL_HANDLER_TEST_LOCK};
 	use config_parser::config::ProgramConfig;
 	use config_parser::validators::{
-		Command, ExitCodes, ExitSignals, ProcessCount, RestartPolicy, Stderr, Stdout, Umask, WorkingDir,
+		Command, EnvironmentVariables, ExitCodes, ExitSignals, ProcessCount, RestartPolicy, Stderr, Stdout, Umask, WorkingDir,
 	};
 	use std::collections::HashMap;
 	use std::fs;
@@ -200,10 +202,11 @@ mod tests {
 				.expect("test output must be valid")),
 			stderr: Some(Stderr::try_from(stderr_path.to_string_lossy().into_owned())
 				.expect("test error output must be valid")),
-			env: HashMap::from([(
+			env: Some(EnvironmentVariables::try_from(HashMap::from([(
 				"TASKMASTER_PROCESS_TEST".to_string(),
 				"configured environment".to_string(),
-			)]),
+			)]))
+			.expect("test environment must be valid")),
 		};
 
 		let mut process = RuntimeProcess::new(&config);
@@ -306,7 +309,8 @@ mod tests {
 			kill_time: 0,
 			stdout: None,
 			stderr: None,
-			env: HashMap::new(),
+			env: Some(EnvironmentVariables::try_from(HashMap::new())
+				.expect("an empty environment must be valid")),
 		};
 
 		let mut process = RuntimeProcess::new(&config);

@@ -405,6 +405,25 @@ start. Tests verify existing-file truncation and successful child execution
 with both streams discarded. The workspace currently passes 39
 configuration-parser tests and 11 runtime tests.
 
+### Next configuration task — environment variables
+
+The remaining launch-time configuration follow-up is validating environment
+variable names while deserializing `ProgramConfig`. Reject invalid names before
+process creation, using the POSIX-style rule that a name begins with an ASCII
+letter or underscore and then contains only ASCII letters, digits, or
+underscores. Keep values as arbitrary strings. Once this validation is covered
+by parser tests, the child-construction contract will be complete; the
+remaining assignment settings are supervisor policy.
+
+### Environment validation complete — 2026-11-07
+
+`ProgramConfig.env` now uses the `EnvironmentVariables` validator instead of a
+raw map. TOML deserialization rejects names that are empty, begin with anything
+other than an ASCII letter or underscore, or contain characters outside ASCII
+letters, digits, and underscores. Values remain arbitrary strings. The runtime
+passes the validated map to `Command::envs`. The workspace passes 45
+configuration-parser tests and 11 runtime tests.
+
 
 ## Configuration fields required by the assignment
 

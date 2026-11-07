@@ -6,6 +6,7 @@ pub mod process_count;
 pub mod restart_protocol;
 pub mod exit_codes;
 pub mod exit_signals;
+pub mod environment;
 
 pub use command::Command;
 pub use output_targets::{Stderr, Stdout};
@@ -15,3 +16,4 @@ pub use process_count::ProcessCount;
 pub use restart_protocol::RestartPolicy;
 pub use exit_codes::ExitCodes;
 pub use exit_signals::ExitSignals;
+pub use environment::EnvironmentVariables;

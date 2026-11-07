@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use serde::Deserialize;
 use crate::validators::{
-	Command, ProcessCount, Stderr, Stdout, Umask, WorkingDir,
+	Command, EnvironmentVariables, ProcessCount, Stderr, Stdout, Umask, WorkingDir,
 	RestartPolicy, ExitCodes, ExitSignals
 };
 use std::fmt;
@@ -31,15 +31,15 @@ pub struct ProgramConfig {
 	pub command: Command,
 	pub chdir: WorkingDir,
 	pub umask: Option<Umask>,
-	pub process_count: ProcessCount,
-	pub auto_start: bool,
-	pub restart_protocol: RestartPolicy,
-	pub exit_codes : ExitCodes,
-	pub runtime: u32,
-	pub restart_count: u32,
-	pub exit_signal: ExitSignals,
-	pub kill_time: u32,
+	pub process_count: ProcessCount, //
+	pub auto_start: bool, //
+	pub restart_protocol: RestartPolicy,//
+	pub exit_codes : ExitCodes, //
+	pub runtime: u32,//
+	pub restart_count: u32, //
+	pub exit_signal: ExitSignals, //
+	pub kill_time: u32,//  
 	pub stdout: Option<Stdout>,
 	pub stderr: Option<Stderr>,
-	pub env: HashMap<String, String>
+	pub env: Option<EnvironmentVariables>
 }
