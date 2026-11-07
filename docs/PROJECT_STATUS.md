@@ -292,6 +292,53 @@ block `SIGCHLD`, spawn and register a `RuntimeProcess`, restore the mask, then
 poll, drain, reap, and update the matching process by PID. Configured stop
 signals and restart policies come only after this lifecycle is reliable.
 
+### Resume review — 2026-11-06
+
+The runtime source was reviewed against the milestones above. `RuntimeProcess`
+currently performs only a basic `Command::new(...).spawn()` and records its PID.
+It does not yet apply command arguments, working directory, environment, or
+standard-stream configuration; it does not wait for or store a child
+termination result; and it is not connected to the self-pipe, `SIGCHLD` handler,
+signal-mask guard, or reaping code.
+
+The next implementation task is therefore to build one reliable supervised
+lifecycle around the existing Unix primitives: while `SIGCHLD` is blocked,
+create the self-pipe and install notifications, spawn and register one process,
+restore the previous mask, wait for the pipe, drain it, reap children, and map
+the matching PID to its `RuntimeProcess` exit status. Keep this checkpoint to
+one configured process and defer restart policies, multiple instances, stop
+signals, reloads, and the shell.
+
+Attempting `cargo test --workspace` during this review was blocked by the
+development environment: Cargo ran out of disk space while unpacking
+`serde_core` in the shared registry. No source or manifest changes were made by
+that failed verification attempt.
+
+### Follow-up review — 2026-11-06
+
+The workspace test suite is now verified: all 48 tests pass (39 in
+`config-parser` and 9 in `runtime`). A `Supervisor` type has been added with a
+`Vec<RuntimeProcess>` field and constructor, but it has no lifecycle behavior
+yet. The runtime retains two expected dead-code warnings for the unused
+`RuntimeProcess::exit_status` and `Supervisor::processes` fields.
+
+Do not expand the supervisor to multiple processes at this point. First give
+the single `RuntimeProcess` the minimal API needed by the supervisor: spawn it
+with its parsed command arguments and applicable configuration, expose its PID,
+and provide a way for the supervisor to store the matching reaped termination
+state. Then add one end-to-end supervisor test that exercises the established
+mask → spawn/register → unmask → wait/drain → reap/update sequence.
+
+### Active sub-milestone — RuntimeProcess API
+
+The current task is to turn `RuntimeProcess` into a small callable runtime API
+that the future control shell and supervisor can use without duplicating spawn
+logic. Its responsibilities are limited to applying one `ProgramConfig`,
+starting one child, retaining the PID and lifecycle state, exposing that state,
+and accepting a matching reaped termination result. Waiting, `SIGCHLD` handling,
+restart decisions, and process-group management remain supervisor
+responsibilities.
+
 
 ## Configuration fields required by the assignment
 

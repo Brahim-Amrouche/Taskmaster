@@ -2,6 +2,7 @@
 use serde::{Deserialize};
 use std::path::{PathBuf};
 use std::marker::PhantomData;
+use std::fs::{File, OpenOptions};
 
 const DEFAULT_TARGET_OUTPUT: &str = "./stdout.log";
 
@@ -30,6 +31,7 @@ impl<T: OutputTargetsType>  TryFrom<String> for OutputTarget<T> {
 	}
 }
 
+
 #[derive(Debug)]
 pub struct StdoutOutputTarget;
 #[derive(Debug)]
@@ -51,6 +53,21 @@ impl OutputTargetsType for StdinOutputTarget {
 	}
 }
 
+impl Stdin {
+	pub fn open_stream(&self) -> std::io::Result<File>{
+		File::open(&self.target)
+	}
+}
+
+impl Stdout {
+	pub fn open_stream(&self) -> std::io::Result<File>{
+		OpenOptions::new()
+			.write(true)
+			.create(true)
+			.open(&self.target)
+	}
+}
+
 impl OutputTargetsType for StdoutOutputTarget  {
 	fn name() ->  &'static str {
 		"StdoutOutputTarget"
@@ -62,6 +79,7 @@ impl OutputTargetsType for StdoutOutputTarget  {
 		}
 		return Ok(());
 	}
+
 }
 
 #[cfg(test)]

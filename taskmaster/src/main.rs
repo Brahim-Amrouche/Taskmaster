@@ -17,7 +17,7 @@ fn run() -> Result<(), Box<dyn std::error::Error> > {
 	let configs = config_reader.parse::<Config>()?;
 	for (_, conf) in configs.program.into_iter(){
 		let mut process = RuntimeProcess::new(&conf);
-		process.run()?;
+		process.start()?;
 		// println!("The value for program is {:?}",conf.command);
 	}
 
