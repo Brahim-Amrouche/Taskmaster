@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.6
+FROM --platform=linux/amd64 rust:1-slim-bookworm
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      pkg-config \
+      ca-certificates \
+      strace \
+      linux-perf \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV CARGO_HOME=/workspace/.cargo-cache \
+    CARGO_TARGET_DIR=/workspace/target-docker
+
+WORKDIR /workspace
+CMD ["bash"]

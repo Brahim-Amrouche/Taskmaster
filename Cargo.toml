@@ -4,5 +4,6 @@ members = [
 	"taskmaster",
 	"config-parser",
 	"runtime",
-	"shell"
+	"shell",
+	"monitoring"
 ]

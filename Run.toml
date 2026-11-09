@@ -1,5 +1,5 @@
 [program.Test]
-command = "/usr/bin/ls"
+command = "/bin/ls"
 chdir = "./config-parser"
 umask = "111"
 process_count = 3
