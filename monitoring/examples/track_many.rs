@@ -6,9 +6,9 @@ use std::thread::available_parallelism;
 use std::time::Instant;
 
 use monitoring::{
-    poll_fds, wait4pid,
+    wait4pid, Poller,
     w_exit_status, w_if_exited, w_if_signaled, w_term_sig,
-    PerfCounter, PerfRing, Pid, PollFd,
+    PerfCounter, PerfRing, Pid,
     POLLIN, POLLHUP, POLLERR, POLLNVAL,
     PERF_RECORD_COMM, PERF_RECORD_FORK, PERF_RECORD_EXIT,
     TaskEventRecord,
@@ -49,48 +49,51 @@ fn main() -> io::Result<()> {
         eprintln!("[spawn] pid={pid} {prog} {}", args.join(" "));
     }
 
-    // 3. PollFd array over the N rings.
-    let mut pfds: Vec<PollFd> = rings.iter()
-        .map(|r| PollFd { fd: r.as_raw_fd(), events: POLLIN, revents: 0 })
-        .collect();
+    // 3. Register each ring with the Poller. Token returned by register()
+    //    matches the ring's index in the `rings` Vec by construction.
+    let mut poller = Poller::new();
+    for ring in &rings {
+        poller.register(ring.as_raw_fd());
+    }
 
-    // 4. Same event loop logic as track_one — only exit condition changed:
-    //    keep looping until every direct child has emitted its EXIT record.
+    // 4. Same event loop logic as track_one — only the dispatch surface
+    //    changed from a raw Vec<PollFd> to Poller + Readiness::iter().
     while !pending.is_empty() {
-        let n_ready = poll_fds(&mut pfds, 5_000)?;
-        if n_ready == 0 {
-            eprintln!("[poll] timeout, {} direct child(ren) still alive", pending.len());
-            break;
-        }
-
-        for (i, pfd) in pfds.iter().enumerate() {
-            if pfd.revents & (POLLERR | POLLNVAL) != 0 {
-                eprintln!("[poll] ring {i} fd errored (revents={:#x}), skipping", pfd.revents);
+        let ready = poller.wait(5_000)?;
+        let mut saw_event = false;
+        for (idx, revents) in ready.iter() {
+            saw_event = true;
+            if revents & (POLLERR | POLLNVAL) != 0 {
+                eprintln!("[poll] ring {idx} fd errored (revents={revents:#x}), skipping");
                 continue;
             }
-            if pfd.revents & (POLLIN | POLLHUP) == 0 { continue; }
-            rings[i].drain(|hdr, bytes| {
+            if revents & (POLLIN | POLLHUP) == 0 { continue; }
+            rings[idx].drain(|hdr, bytes| {
                 let t = t0.elapsed().as_millis();
                 match hdr.type_ {
                     PERF_RECORD_FORK => {
                         if let Some(r) = TaskEventRecord::try_from_bytes(bytes) {
                             let tag = if pending.contains(&(r.ppid as c_int)) { "GRAND-FORK" } else { "FORK      " };
-                            eprintln!("[{t:>5}ms cpu{i}] {tag} pid={} ppid={}", r.pid, r.ppid);
+                            eprintln!("[{t:>5}ms cpu{idx}] {tag} pid={} ppid={}", r.pid, r.ppid);
                         }
                     }
                     PERF_RECORD_EXIT => {
                         if let Some(r) = TaskEventRecord::try_from_bytes(bytes) {
                             let tag = if pending.contains(&(r.pid as c_int)) { "EXIT      " } else { "GRAND-EXIT" };
-                            eprintln!("[{t:>5}ms cpu{i}] {tag} pid={} ppid={}", r.pid, r.ppid);
+                            eprintln!("[{t:>5}ms cpu{idx}] {tag} pid={} ppid={}", r.pid, r.ppid);
                             pending.remove(&(r.pid as c_int));
                         }
                     }
                     PERF_RECORD_COMM => {
-                        eprintln!("[{t:>5}ms cpu{i}] COMM       (exec / rename)");
+                        eprintln!("[{t:>5}ms cpu{idx}] COMM       (exec / rename)");
                     }
                     _ => { /* ignore LOST, THROTTLE, MMAP etc */ }
                 }
             });
+        }
+        if !saw_event {
+            eprintln!("[poll] timeout, {} direct child(ren) still alive", pending.len());
+            break;
         }
     }
 

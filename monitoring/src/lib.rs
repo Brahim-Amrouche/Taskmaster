@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 
+pub mod signalfd;
+
 use std::ffi::{c_int, c_long, c_ulong, c_void, c_short};
 use std::io;
 use std::os::fd::RawFd;
